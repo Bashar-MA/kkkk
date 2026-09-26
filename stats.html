@@ -72,6 +72,24 @@
     </div>
   </div>
 
+  <h2>Chart Style</h2>
+  <div class="box">
+    <div class="check"><input id="showDots" type="checkbox" checked><label style="margin:0">Show individual data points</label></div>
+    <label>Group label angle (0\u00b0 = horizontal, 90\u00b0 = vertical)</label>
+    <input id="labelAngle" type="number" value="0" min="0" max="90">
+    <label>Bar width (fraction of available space, 0.2\u20130.9)</label>
+    <input id="barFrac" type="number" value="0.5" min="0.2" max="0.9" step="0.05">
+    <label>Bracket clearance above error bar (px)</label>
+    <input id="bracketGap" type="number" value="10" min="0">
+    <div id="twoWaySpacingBox" style="display:none">
+      <label>Space between Factor-A groups (fraction, larger = more gap)</label>
+      <input id="groupGapFrac" type="number" value="0.35" min="0" max="0.8" step="0.05">
+      <label>Space between sub-bars within a group (fraction, larger = more gap)</label>
+      <input id="subGapFrac" type="number" value="0.12" min="0" max="0.6" step="0.05">
+      <div id="factorBColors"></div>
+    </div>
+  </div>
+
   <h2>Layout</h2>
   <div class="box">
     <div class="row"><div><label>Unit</label><select id="unit"><option value="cm">cm</option><option value="mm">mm</option><option value="in">in</option></select></div>
@@ -236,26 +254,42 @@ let tickPal,titlePal;
 $('fontTick').innerHTML=fontRoleHTML('tick','Axis Tick Numbers');
 $('fontTitle').innerHTML=fontRoleHTML('title','Titles / Labels');
 function initRoles(){ tickPal=initFontRole('tick',render); titlePal=initFontRole('title',render); }
-['unit','panelW','panelH','perRow','gap','paired'].forEach(id=>{ $(id).addEventListener('input',render); $(id).addEventListener('change',render); });
+['unit','panelW','panelH','perRow','gap','paired','showDots','labelAngle','barFrac','bracketGap','groupGapFrac','subGapFrac'].forEach(id=>{ $(id).addEventListener('input',render); $(id).addEventListener('change',render); });
 
 function switchTab(m){
   mode=m;
   $('tabT').classList.toggle('active',m==='t'); $('tab1').classList.toggle('active',m==='one'); $('tab2').classList.toggle('active',m==='two');
   $('compareWrap').style.display = m==='two' ? 'none':'block';
+  $('twoWaySpacingBox').style.display = m==='two' ? 'block':'none';
   $('dataHint').textContent = m==='two'
     ? 'Each column header must encode two factors, e.g. "Vehicle|Lamelopodia" (Factor A|Factor B). Values below are replicates for that combination.'
     : 'Each column = one group\u2019s replicate values (or cluster values, one per row). First row = group names.';
-  files=[]; comparisons=[];
-  renderFileList(); renderColConfig(); render();
+  files=[]; comparisons=[]; window._factorBColors=null;
+  renderFileList(); renderColConfig(); renderFactorBColorUI(); render();
 }
 
+function renderFactorBColorUI(){
+  const box=$('factorBColors'); if(!box) return; box.innerHTML='';
+  if(mode!=='two' || !files.length) return;
+  const parts=files[0].headers.map(h=>{ const p=h.split('|'); return (p[1]||'B').trim(); });
+  const levelsB=[...new Set(parts)];
+  window._factorBColors = window._factorBColors && window._factorBColors.length===levelsB.length ? window._factorBColors : levelsB.map((_,i)=>PALETTE[((i*9+3)%40)]);
+  box.innerHTML='<div class="subh">Colors per sub-group (Factor B)</div>';
+  levelsB.forEach((lb,i)=>{
+    const row=document.createElement('div'); row.style.marginTop='6px';
+    row.innerHTML=`<label style="margin:4px 0 2px">${escXml(lb)}</label><div id="palFB${i}"></div>`;
+    box.appendChild(row);
+    const idx = PALETTE.indexOf(window._factorBColors[i])+1 || 1;
+    createPalette($('palFB'+i), idx, (color)=>{ window._factorBColors[i]=color; render(); });
+  });
+}
 $('dsFiles').addEventListener('change', e=>{
   [...e.target.files].forEach(f=>{
     loadFile(f, csv=>{
       const t=parseDelimited(csv);
       files.push({name:f.name.replace(/\.[^.]+$/,''), headers:t.headers, cols:t.cols,
         colConfig:t.headers.map((h,i)=>({label:h,colorIdx:((i*7+5)%40)+1,color:PALETTE[((i*7+5)%40)],visible:true,colIndex:i}))});
-      renderFileList(); renderColConfig(); render();
+      renderFileList(); renderColConfig(); renderFactorBColorUI(); render();
     });
   });
 });
@@ -323,18 +357,38 @@ function loadSample(){
     files.push({name:'clusters', headers:heads, cols, colConfig:heads.map((h,i)=>({label:h,colorIdx:((i*7+5)%40)+1,color:PALETTE[((i*7+5)%40)],visible:true,colIndex:i}))});
     comparisons=[{a:1,b:0},{a:2,b:0}];
   }
-  renderFileList(); renderColConfig(); renderCmpList(); render();
+  renderFileList(); renderColConfig(); renderCmpList(); renderFactorBColorUI(); render();
 }
 
 /* ===== chart drawing ===== */
 function jitter(n,width){ return Array.from({length:n},()=>(Math.random()-0.5)*width); }
 function drawBarChart(groups,comparisons,x,y,w,h,title,fontA,fontB,tickCol,titleCol){
-  const ml=x+50,mr=x+w-10,mt=y+34,mb=y+h-40, drawW=mr-ml, drawH=mb-mt;
+  const angle=parseFloat($('labelAngle').value)||0;
+  const barFrac=parseFloat($('barFrac').value)||0.5;
+  const bracketGap=parseFloat($('bracketGap').value)||10;
+  const showDots=$('showDots').checked;
+  const ml=x+50,mr=x+w-10, mb=y+h-(40+angle*0.5);
   const vis=groups.filter(g=>g.visible!==false);
   if(!vis.length) return '';
   const stats=vis.map(g=>({...g, m:mean(g.values), s:sd(g.values)}));
-  const maxV=Math.max(...stats.map(g=>g.m+g.s), ...stats.flatMap(g=>g.values))*1.15;
-  const minV=Math.min(0,...stats.flatMap(g=>g.values));
+  const flip = stats.every(g=>g.m<=0) && stats.some(g=>g.m<0 || g.values.some(v=>v<0));
+  const tv = v=> flip? -v : v;
+  const dataMax=Math.max(...stats.map(g=>tv(g.m)+g.s), ...stats.flatMap(g=>g.values.map(tv)), 0.0001);
+  const validComparisons=comparisons.filter(cmp=> vis.findIndex(g=>g.origIndex===cmp.a)>=0 && vis.findIndex(g=>g.origIndex===cmp.b)>=0);
+  const spans=validComparisons.map(cmp=>{ const gi=vis.findIndex(g=>g.origIndex===cmp.a), gj=vis.findIndex(g=>g.origIndex===cmp.b); return {cmp,lo:Math.min(gi,gj),hi:Math.max(gi,gj)}; });
+  spans.sort((a,b)=>(a.hi-a.lo)-(b.hi-b.lo));
+  const levels=[];
+  spans.forEach(sp=>{
+    let lvl=0;
+    while(levels[lvl] && levels[lvl].some(o=> sp.lo<=o.hi && sp.hi>=o.lo)) lvl++;
+    if(!levels[lvl]) levels[lvl]=[];
+    levels[lvl].push(sp); sp.level=lvl;
+  });
+  const totalLevels=levels.length;
+  const maxV=dataMax*(1.15+0.20*totalLevels);
+  const minV=0;
+  const mt=y+34;
+  const drawW=mr-ml, drawH=mb-mt;
   const slot=drawW/vis.length;
   const yS=v=> mb-(v-minV)/(maxV-minV)*drawH;
   let s='';
@@ -342,26 +396,33 @@ function drawBarChart(groups,comparisons,x,y,w,h,title,fontA,fontB,tickCol,title
   s+=`<line x1="${ml}" y1="${mb}" x2="${mr}" y2="${mb}" stroke="#222" stroke-width="1.2"/>`;
   s+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mb}" stroke="#222" stroke-width="1.2"/>`;
   const yTicks=5;
-  for(let i=0;i<=yTicks;i++){ const v=minV+(maxV-minV)*i/yTicks; const yy=yS(v);
-    s+=`<line x1="${ml-3}" y1="${yy}" x2="${ml}" y2="${yy}" stroke="#222"/><text x="${ml-6}" y="${yy+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${Math.round(v*100)/100}</text>`; }
+  for(let i=0;i<=yTicks;i++){ const v=minV+(maxV-minV)*i/yTicks; const yy=yS(v); const lbl=flip?-Math.round(v*100)/100:Math.round(v*100)/100;
+    s+=`<line x1="${ml-3}" y1="${yy}" x2="${ml}" y2="${yy}" stroke="#222"/><text x="${ml-6}" y="${yy+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${lbl}</text>`; }
+  const errorTop=[];
   stats.forEach((g,i)=>{
-    const cx=ml+slot*(i+0.5), barW=slot*0.5;
-    const barTop=yS(g.m);
+    const cx=ml+slot*(i+0.5), barW=slot*barFrac;
+    const mV=tv(g.m), barTop=yS(mV);
     s+=`<rect x="${cx-barW/2}" y="${barTop}" width="${barW}" height="${mb-barTop}" fill="${g.color}" fill-opacity="0.85" stroke="${g.color}"/>`;
-    s+=`<line x1="${cx}" y1="${yS(g.m-g.s)}" x2="${cx}" y2="${yS(g.m+g.s)}" stroke="#222" stroke-width="1.2"/>`;
-    s+=`<line x1="${cx-5}" y1="${yS(g.m-g.s)}" x2="${cx+5}" y2="${yS(g.m-g.s)}" stroke="#222"/><line x1="${cx-5}" y1="${yS(g.m+g.s)}" x2="${cx+5}" y2="${yS(g.m+g.s)}" stroke="#222"/>`;
-    const jit=jitter(g.values.length,barW*0.6);
-    g.values.forEach((v,vi)=> s+=`<circle cx="${cx+jit[vi]}" cy="${yS(v)}" r="2.5" fill="#000"/>`);
-    s+=`<text x="${cx}" y="${mb+16}" text-anchor="middle" ${fontA} fill="${titleCol}">${escXml(g.label)}</text>`;
+    const topErr=yS(mV+g.s), botErr=yS(Math.max(0,mV-g.s));
+    s+=`<line x1="${cx}" y1="${botErr}" x2="${cx}" y2="${topErr}" stroke="#222" stroke-width="1.2"/>`;
+    s+=`<line x1="${cx-5}" y1="${botErr}" x2="${cx+5}" y2="${botErr}" stroke="#222"/><line x1="${cx-5}" y1="${topErr}" x2="${cx+5}" y2="${topErr}" stroke="#222"/>`;
+    let topMost=topErr;
+    if(showDots){
+      const jit=jitter(g.values.length,barW*0.6);
+      g.values.forEach((v,vi)=>{ const yy=yS(tv(v)); s+=`<circle cx="${cx+jit[vi]}" cy="${yy}" r="2.5" fill="#000"/>`; if(yy<topMost) topMost=yy; });
+    }
+    errorTop.push(topMost);
+    if(angle>0){
+      s+=`<text x="${cx}" y="${mb+14}" text-anchor="end" ${fontA} fill="${titleCol}" transform="rotate(-${angle} ${cx} ${mb+14})">${escXml(g.label)}</text>`;
+    } else {
+      s+=`<text x="${cx}" y="${mb+16}" text-anchor="middle" ${fontA} fill="${titleCol}">${escXml(g.label)}</text>`;
+    }
   });
-  let bracketLevel=0;
-  comparisons.forEach(cmp=>{
-    const gi=vis.findIndex(g=>g.origIndex===cmp.a), gj=vis.findIndex(g=>g.origIndex===cmp.b);
-    if(gi<0||gj<0) return;
-    const lo=Math.min(gi,gj), hi=Math.max(gi,gj);
-    const cx1=ml+slot*(lo+0.5), cx2=ml+slot*(hi+0.5);
-    const by=mt+10+bracketLevel*16; bracketLevel++;
-    const p=cmp._p!==undefined?cmp._p:1;
+  spans.forEach(sp=>{
+    const cx1=ml+slot*(sp.lo+0.5), cx2=ml+slot*(sp.hi+0.5);
+    let reach=Infinity; for(let k=sp.lo;k<=sp.hi;k++) reach=Math.min(reach,errorTop[k]);
+    const by=reach-bracketGap-sp.level*18;
+    const p=sp.cmp._p!==undefined?sp.cmp._p:1;
     s+=`<line x1="${cx1}" y1="${by}" x2="${cx2}" y2="${by}" stroke="#000" stroke-width="1"/>`;
     s+=`<line x1="${cx1}" y1="${by}" x2="${cx1}" y2="${by+4}" stroke="#000" stroke-width="1"/>`;
     s+=`<line x1="${cx2}" y1="${by}" x2="${cx2}" y2="${by+4}" stroke="#000" stroke-width="1"/>`;
@@ -370,30 +431,44 @@ function drawBarChart(groups,comparisons,x,y,w,h,title,fontA,fontB,tickCol,title
   return s;
 }
 function drawGroupedBarChart(cellObj,x,y,w,h,title,fontA,fontB,tickCol,titleCol){
-  const {levelsA,levelsB,cells,colorsB}=cellObj;
-  const ml=x+50,mr=x+w-10,mt=y+40,mb=y+h-40, drawW=mr-ml, drawH=mb-mt;
+  const {levelsA,levelsB,cells}=cellObj;
+  const colorsB = window._factorBColors && window._factorBColors.length>=levelsB.length ? window._factorBColors : cellObj.colorsB;
+  const angle=parseFloat($('labelAngle').value)||0;
+  const showDots=$('showDots').checked;
+  const groupGapFrac=parseFloat($('groupGapFrac').value)||0.35;
+  const subGapFrac=parseFloat($('subGapFrac').value)||0.12;
+  const ml=x+50,mr=x+w-10,mt=y+40, mb=y+h-(40+angle*0.5), drawW=mr-ml, drawH=mb-mt;
   const all=cells.flatMap(c=>c.values);
-  const maxV=Math.max(...all)*1.2||1, minV=Math.min(0,...all);
+  const flip = all.every(v=>v<=0) && all.some(v=>v<0);
+  const tv=v=>flip?-v:v;
+  const maxV=Math.max(...all.map(tv))*1.2||1, minV=0;
   const yS=v=> mb-(v-minV)/(maxV-minV)*drawH;
-  const groupSlot=drawW/levelsA.length, barW=groupSlot/(levelsB.length+1);
+  const groupSlot=drawW/levelsA.length;
+  const nB=levelsB.length;
+  const barW = groupSlot*(1-groupGapFrac)/nB;
+  const subGap = groupSlot*subGapFrac/(nB>1?nB-1:1);
+  const groupContentW = nB*barW+(nB-1)*subGap;
+  const groupStart = ai=> ml+ai*groupSlot + (groupSlot-groupContentW)/2;
   let s='';
   if(title) s+=`<text x="${x+w/2}" y="${y+16}" text-anchor="middle" ${fontB} fill="${titleCol}">${escXml(title)}</text>`;
   let lx=ml;
   levelsB.forEach((lb,bi)=>{ s+=`<rect x="${lx}" y="${y+22}" width="10" height="10" fill="${colorsB[bi]}"/><text x="${lx+14}" y="${y+31}" ${fontA} fill="${titleCol}">${escXml(lb)}</text>`; lx+=14+lb.length*6.5+14; });
   s+=`<line x1="${ml}" y1="${mb}" x2="${mr}" y2="${mb}" stroke="#222" stroke-width="1.2"/><line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mb}" stroke="#222" stroke-width="1.2"/>`;
-  for(let i=0;i<=5;i++){ const v=minV+(maxV-minV)*i/5, yy=yS(v); s+=`<line x1="${ml-3}" y1="${yy}" x2="${ml}" y2="${yy}" stroke="#222"/><text x="${ml-6}" y="${yy+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${Math.round(v*100)/100}</text>`; }
+  for(let i=0;i<=5;i++){ const v=minV+(maxV-minV)*i/5, yy=yS(v); const lbl=flip?-Math.round(v*100)/100:Math.round(v*100)/100;
+    s+=`<line x1="${ml-3}" y1="${yy}" x2="${ml}" y2="${yy}" stroke="#222"/><text x="${ml-6}" y="${yy+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${lbl}</text>`; }
   levelsA.forEach((la,ai)=>{
-    const gx0=ml+ai*groupSlot;
+    const gx0=groupStart(ai);
     levelsB.forEach((lb,bi)=>{
       const cell=cells.find(c=>c.a===la&&c.b===lb); if(!cell) return;
-      const m=mean(cell.values), sdv=sd(cell.values);
-      const cx=gx0+barW*(bi+0.7), top=yS(m);
-      s+=`<rect x="${cx-barW*0.4}" y="${top}" width="${barW*0.8}" height="${mb-top}" fill="${colorsB[bi]}" fill-opacity="0.85" stroke="${colorsB[bi]}"/>`;
-      s+=`<line x1="${cx}" y1="${yS(m-sdv)}" x2="${cx}" y2="${yS(m+sdv)}" stroke="#222" stroke-width="1.2"/>`;
-      const jit=jitter(cell.values.length,barW*0.35);
-      cell.values.forEach((v,vi)=> s+=`<circle cx="${cx+jit[vi]}" cy="${yS(v)}" r="2" fill="#000"/>`);
+      const mV=tv(mean(cell.values)), sdv=sd(cell.values);
+      const cx=gx0+bi*(barW+subGap)+barW/2, top=yS(mV);
+      s+=`<rect x="${cx-barW*0.45}" y="${top}" width="${barW*0.9}" height="${mb-top}" fill="${colorsB[bi]}" fill-opacity="0.85" stroke="${colorsB[bi]}"/>`;
+      s+=`<line x1="${cx}" y1="${yS(Math.max(0,mV-sdv))}" x2="${cx}" y2="${yS(mV+sdv)}" stroke="#222" stroke-width="1.2"/>`;
+      if(showDots){ const jit=jitter(cell.values.length,barW*0.35); cell.values.forEach((v,vi)=> s+=`<circle cx="${cx+jit[vi]}" cy="${yS(tv(v))}" r="2" fill="#000"/>`); }
     });
-    s+=`<text x="${gx0+groupSlot/2}" y="${mb+16}" text-anchor="middle" ${fontA} fill="${titleCol}">${escXml(la)}</text>`;
+    const gcx=ml+ai*groupSlot+groupSlot/2;
+    if(angle>0) s+=`<text x="${gcx}" y="${mb+14}" text-anchor="end" ${fontA} fill="${titleCol}" transform="rotate(-${angle} ${gcx} ${mb+14})">${escXml(la)}</text>`;
+    else s+=`<text x="${gcx}" y="${mb+16}" text-anchor="middle" ${fontA} fill="${titleCol}">${escXml(la)}</text>`;
   });
   return s;
 }
