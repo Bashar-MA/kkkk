@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statistics & Charts</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/svg2pdf.js/2.2.3/svg2pdf.umd.min.js"></script>
+<style>
+  :root{--ink:#1c2330;--line:#d8dee8;--panel:#fbfcfe;--accent:#2f5fd6;--muted:#69728a;--bg:#eef1f6;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);
+       display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:13px;}
+  #nav{flex:0 0 auto;display:flex;gap:14px;align-items:center;padding:8px 16px;background:#1c2330;color:#fff;font-size:12px;flex-wrap:wrap;}
+  #nav a{color:#cdd6ea;text-decoration:none;} #nav a.active{color:#fff;font-weight:700;}
+  #main{flex:1;display:flex;overflow:hidden;}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 0 8px;}
+  h2:first-child{margin-top:0;}
+  #panel{width:400px;flex:0 0 400px;background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;}
+  #canvasWrap{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:24px;overflow:auto;}
+  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 3px;}
+  input,select,textarea{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff;color:var(--ink);font-family:inherit;}
+  .row{display:flex;gap:8px;} .row>div{flex:1;}
+  button{width:100%;padding:8px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;}
+  button.secondary{background:#3a4256;} button.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent);}
+  .box{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:10px;background:#fff;}
+  .check{display:flex;align-items:center;gap:6px;margin:6px 0;} .check input{width:auto;}
+  .tabs{display:flex;gap:4px;margin-bottom:10px;} .tabs button{margin:0;background:#e4e8ef;color:var(--ink);}
+  .tabs button.active{background:var(--accent);color:#fff;}
+  .item{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-top:6px;font-size:11px;background:#fff;}
+  .item .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .item .del{cursor:pointer;color:#c0392b;font-weight:700;}
+  #svgHost svg{max-width:100%;height:auto;}
+  .palette{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;margin-top:4px;}
+  .sw{aspect-ratio:1;border-radius:3px;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid transparent;text-shadow:0 0 2px rgba(0,0,0,.7);}
+  .sw.sel{border-color:#1c2330;}
+  .palNum{display:flex;gap:6px;align-items:center;margin-top:4px;} .palNum input{width:60px;} .palNum span{font-size:10px;color:var(--muted);}
+  .hint{font-size:10px;color:var(--muted);margin-top:4px;}
+  .subh{font-size:11px;font-weight:700;margin-top:10px;color:var(--ink);}
+  .dsEntry{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;background:#fff;}
+  table.stattbl{border-collapse:collapse;margin-top:14px;font-size:12px;}
+  table.stattbl th,table.stattbl td{border:1px solid #ccc;padding:4px 8px;text-align:center;}
+  table.stattbl th{background:#f2f4f8;}
+</style>
+</head>
+<body>
+<div id="nav"><span style="font-weight:700">Figure Tools</span><a href="index.html">Home</a><a href="timeline.html">Timeline</a><a href="domains.html">Domain Map</a><a href="plots.html">Analysis Plots</a><a href="multipanel.html">Multi-Panel</a><a href="dccm.html">DCCM</a><a href="stats.html" class="active">Statistics & Charts</a></div>
+<div id="main">
+<div id="panel">
+  <div class="tabs">
+    <button id="tabT" class="active" onclick="switchTab('t')">t-Test</button>
+    <button id="tab1" onclick="switchTab('one')">One-Way ANOVA</button>
+    <button id="tab2" onclick="switchTab('two')">Two-Way ANOVA</button>
+  </div>
+
+  <h2>Files</h2>
+  <div class="hint" id="dataHint"></div>
+  <input type="file" id="dsFiles" accept=".csv,.tsv,.xlsx,.xls" multiple>
+  <button class="ghost" onclick="loadSample()">Load Sample Data</button>
+  <div id="pairedBox" class="check"><input id="paired" type="checkbox"><label style="margin:0">Paired comparisons (samples matched row-by-row, e.g. same clusters)</label></div>
+  <div id="fileList"></div>
+
+  <div id="colConfigWrap"></div>
+
+  <div id="compareWrap">
+    <h2>Comparisons to show (brackets)</h2>
+    <div class="box">
+      <div class="row"><div><label>Group A</label><select id="cmpA"></select></div><div><label>Group B</label><select id="cmpB"></select></div></div>
+      <button onclick="addComparison()">Add Comparison</button>
+      <div id="cmpList"></div>
+    </div>
+  </div>
+
+  <h2>Layout</h2>
+  <div class="box">
+    <div class="row"><div><label>Unit</label><select id="unit"><option value="cm">cm</option><option value="mm">mm</option><option value="in">in</option></select></div>
+      <div><label>Panel Width</label><input id="panelW" type="number" value="7" step="0.1"></div>
+      <div><label>Panel Height</label><input id="panelH" type="number" value="7" step="0.1"></div></div>
+    <div class="row"><div><label>Charts per row (batch)</label><input id="perRow" type="number" value="3" min="1"></div>
+      <div><label>Gap</label><input id="gap" type="number" value="0.6" step="0.1"></div></div>
+  </div>
+  <div class="box" id="fontTick"></div>
+  <div class="box" id="fontTitle"></div>
+
+  <h2>Export</h2>
+  <button class="secondary" onclick="exportSVGFile()">Export Chart(s) as SVG</button>
+  <button class="secondary" onclick="exportPDFFile()">Export Chart(s) as Vector PDF</button>
+  <button class="secondary" onclick="exportExcel()">Download Statistics Table (Excel)</button>
+</div>
+<div id="canvasWrap"><div id="svgHost"></div><div id="tableHost"></div></div>
+</div>
+<script>
+/* ===== self-contained helper code ===== */
+function $(id){return document.getElementById(id);}
+function hsl2hex(h,s,l){ s/=100; l/=100; const k=n=>(n+h/30)%12; const a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1))); const toHex=x=>Math.round(255*x).toString(16).padStart(2,'0');
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`; }
+const PALETTE = Array.from({length:40},(_,i)=>hsl2hex(Math.round(i*9),65,50));
+function physicalToPx(value,unit){ const perInch=96; const factor=unit==='cm'?perInch/2.54:unit==='mm'?perInch/25.4:perInch; return (parseFloat(value)||0)*factor; }
+function escXml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function downloadSVG(svgEl,filename){ const blob=new Blob([svgEl.outerHTML],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
+async function exportVectorPDF(svgEl,wIn,hIn,filename){ const {jsPDF}=window.jspdf; const pdf=new jsPDF({unit:'in',format:[wIn,hIn]}); await pdf.svg(svgEl,{x:0,y:0,width:wIn,height:hIn}); pdf.save(filename); }
+function createPalette(container,initialIdx,onChange){
+  let idx=initialIdx||1;
+  function draw(){
+    container.innerHTML='<div class="palette">'+PALETTE.map((c,i)=>`<div class="sw${i+1===idx?' sel':''}" style="background:${c}" data-i="${i+1}">${i+1}</div>`).join('')+
+      '</div><div class="palNum"><input type="number" min="1" max="40" value="'+idx+'"><span>type 1\u201340</span></div>';
+    container.querySelectorAll('.sw').forEach(el=>el.onclick=()=>{idx=parseInt(el.dataset.i);draw();onChange(PALETTE[idx-1],idx);});
+    container.querySelector('input').onchange=e=>{idx=Math.max(1,Math.min(40,parseInt(e.target.value)||1));draw();onChange(PALETTE[idx-1],idx);};
+  }
+  draw();
+  return {get:()=>({color:PALETTE[idx-1],idx}), set:(i)=>{idx=i;draw();}};
+}
+function fontRoleHTML(role,title){
+  return `<div class="subh">${title}</div>
+    <div class="row"><div><label>Family</label><select id="${role}Family">
+      <option value="Arial, Helvetica, sans-serif">Arial</option><option value="Georgia, serif">Georgia</option>
+      <option value="'Times New Roman', serif">Times New Roman</option><option value="'Courier New', monospace">Courier New</option>
+      <option value="Verdana, sans-serif">Verdana</option></select></div>
+    <div><label>Style</label><select id="${role}Style"><option value="normal">Normal</option><option value="italic">Italic</option><option value="bold">Bold</option><option value="bolditalic">Bold Italic</option></select></div></div>
+    <div class="row" style="margin-top:6px"><div><label>Size</label><input id="${role}Size" type="number" value="12"></div>
+    <div><label>Color</label><select id="${role}ColorMode"><option value="default">Default</option><option value="custom">Custom</option></select></div></div>
+    <div id="${role}ColorBox" style="display:none"><div id="pal-${role}"></div></div>`;
+}
+function initFontRole(role,onChange){
+  ['Family','Style','Size'].forEach(k=>{ const el=$(role+k); el.addEventListener('input',onChange); el.addEventListener('change',onChange); });
+  const modeEl=$(role+'ColorMode');
+  modeEl.addEventListener('change',()=>{ $(role+'ColorBox').style.display=modeEl.value==='custom'?'block':'none'; onChange(); });
+  return createPalette($('pal-'+role),1,onChange);
+}
+function fontAttrs(family,styleMode,size){
+  let style='normal',weight='normal';
+  if(styleMode==='italic') style='italic'; else if(styleMode==='bold') weight='bold'; else if(styleMode==='bolditalic'){style='italic';weight='bold';}
+  return `font-family="${family}" font-style="${style}" font-weight="${weight}" font-size="${size}"`;
+}
+function roleFontAttrs(role){ return fontAttrs($(role+'Family').value,$(role+'Style').value,$(role+'Size').value); }
+function roleColor(role,pal,fallback){ return $(role+'ColorMode').value==='custom'?pal.get().color:fallback; }
+function loadFile(file,cb){
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.xlsx')||name.endsWith('.xls')){
+    const r=new FileReader(); r.onload=e=>{ const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'}); cb(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]])); }; r.readAsArrayBuffer(file);
+  } else { const r=new FileReader(); r.onload=e=>cb(e.target.result); r.readAsText(file); }
+}
+function parseDelimited(text){
+  const lines=text.trim().split(/\r?\n/).filter(l=>l.trim().length);
+  if(!lines.length) return {headers:[],cols:[]};
+  const delim=lines[0].includes('\t')?'\t':',';
+  const headers=lines[0].split(delim).map(h=>h.trim());
+  const cols=headers.map(()=>[]);
+  for(let i=1;i<lines.length;i++){ const cells=lines[i].split(delim); cells.forEach((c,j)=>{ if(j<cols.length){ const v=parseFloat(c); if(!isNaN(v)) cols[j].push(v); } }); }
+  return {headers,cols};
+}
+
+/* ===== statistics ===== */
+function mean(a){ return a.reduce((x,y)=>x+y,0)/a.length; }
+function variance(a){ const m=mean(a); return a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1); }
+function sd(a){ return Math.sqrt(variance(a)); }
+function gammaln(x){
+  const cof=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];
+  let y=x, tmp=x+5.5; tmp-=(x+0.5)*Math.log(tmp);
+  let ser=1.000000000190015;
+  for(let j=0;j<6;j++){ y+=1; ser+=cof[j]/y; }
+  return -tmp+Math.log(2.5066282746310005*ser/x);
+}
+function betacf(x,a,b){
+  const MAXIT=100, EPS=3e-7, FPMIN=1e-30;
+  const qab=a+b, qap=a+1, qam=a-1;
+  let c=1, d=1-qab*x/qap; if(Math.abs(d)<FPMIN)d=FPMIN; d=1/d; let h=d;
+  for(let m=1;m<=MAXIT;m++){
+    const m2=2*m;
+    let aa=m*(b-m)*x/((qam+m2)*(a+m2));
+    d=1+aa*d; if(Math.abs(d)<FPMIN)d=FPMIN;
+    c=1+aa/c; if(Math.abs(c)<FPMIN)c=FPMIN;
+    d=1/d; h*=d*c;
+    aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));
+    d=1+aa*d; if(Math.abs(d)<FPMIN)d=FPMIN;
+    c=1+aa/c; if(Math.abs(c)<FPMIN)c=FPMIN;
+    d=1/d; const del=d*c; h*=del;
+    if(Math.abs(del-1)<EPS) break;
+  }
+  return h;
+}
+function betai(a,b,x){
+  if(x<=0) return 0; if(x>=1) return 1;
+  const bt=Math.exp(gammaln(a+b)-gammaln(a)-gammaln(b)+a*Math.log(x)+b*Math.log(1-x));
+  if(x<(a+1)/(a+b+2)) return bt*betacf(x,a,b)/a;
+  return 1-bt*betacf(1-x,b,a)/b;
+}
+function tTestP(t,df){ return betai(df/2,0.5,df/(df+t*t)); }
+function fTestP(F,df1,df2){ if(F<=0) return 1; return betai(df2/2,df1/2, df2/(df2+df1*F)); }
+function tTest(a,b,paired){
+  if(paired){
+    const n=Math.min(a.length,b.length); const diffs=a.slice(0,n).map((v,i)=>v-b[i]);
+    const md=mean(diffs), se=sd(diffs)/Math.sqrt(n); const t=md/se; const df=n-1;
+    return {t,df,p:tTestP(Math.abs(t),df),meanDiff:md};
+  }
+  const na=a.length, nb=b.length, ma=mean(a), mb=mean(b), va=variance(a), vb=variance(b);
+  const se=Math.sqrt(va/na+vb/nb), t=(ma-mb)/se;
+  const df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1)+Math.pow(vb/nb,2)/(nb-1));
+  return {t,df,p:tTestP(Math.abs(t),df),meanDiff:ma-mb};
+}
+function oneWayANOVA(groups){
+  const all=groups.flat(), N=all.length, k=groups.length, grand=mean(all);
+  let ssB=0, ssW=0;
+  groups.forEach(g=>{ const m=mean(g); ssB+=g.length*(m-grand)**2; g.forEach(v=>ssW+=(v-m)**2); });
+  const dfB=k-1, dfW=N-k, msB=ssB/dfB, msW=ssW/dfW, F=msB/msW;
+  return {F,dfB,dfW,p:fTestP(F,dfB,dfW),ssB,ssW,msB,msW};
+}
+function twoWayANOVA(cells){
+  const levelsA=[...new Set(cells.map(c=>c.a))], levelsB=[...new Set(cells.map(c=>c.b))];
+  const a=levelsA.length, b=levelsB.length, r=cells[0].values.length;
+  const all=cells.flatMap(c=>c.values), grand=mean(all);
+  const cellMean=(la,lb)=>{ const c=cells.find(c=>c.a===la&&c.b===lb); return c?mean(c.values):NaN; };
+  const meanA=la=>mean(cells.filter(c=>c.a===la).flatMap(c=>c.values));
+  const meanB=lb=>mean(cells.filter(c=>c.b===lb).flatMap(c=>c.values));
+  let ssA=0; levelsA.forEach(la=>ssA+=b*r*(meanA(la)-grand)**2);
+  let ssB=0; levelsB.forEach(lb=>ssB+=a*r*(meanB(lb)-grand)**2);
+  let ssAB=0; levelsA.forEach(la=>levelsB.forEach(lb=>ssAB+=r*(cellMean(la,lb)-meanA(la)-meanB(lb)+grand)**2));
+  let ssE=0; cells.forEach(c=>{ const m=mean(c.values); c.values.forEach(v=>ssE+=(v-m)**2); });
+  const dfA=a-1, dfB=b-1, dfAB=dfA*dfB, dfE=a*b*(r-1);
+  const msA=ssA/dfA, msB=ssB/dfB, msAB=ssAB/dfAB, msE=ssE/dfE;
+  return { A:{ss:ssA,df:dfA,ms:msA,F:msA/msE,p:fTestP(msA/msE,dfA,dfE)},
+    B:{ss:ssB,df:dfB,ms:msB,F:msB/msE,p:fTestP(msB/msE,dfB,dfE)},
+    AB:{ss:ssAB,df:dfAB,ms:msAB,F:msAB/msE,p:fTestP(msAB/msE,dfAB,dfE)},
+    E:{ss:ssE,df:dfE,ms:msE}, levelsA, levelsB };
+}
+function starsFor(p){ if(p<0.0001) return '****'; if(p<0.001) return '***'; if(p<0.01) return '**'; if(p<0.05) return '*'; return 'ns'; }
+
+/* ===== state ===== */
+let mode='t';
+let files=[]; // {name, headers, cols, colConfig:[{label,color,visible,colIndex}]}
+let comparisons=[]; // {a:fileColIdx label, b:..} — stored as indices into the (shared) union column set per file? simplify: comparisons reference column labels, applied per file if labels match
+let tickPal,titlePal;
+$('fontTick').innerHTML=fontRoleHTML('tick','Axis Tick Numbers');
+$('fontTitle').innerHTML=fontRoleHTML('title','Titles / Labels');
+function initRoles(){ tickPal=initFontRole('tick',render); titlePal=initFontRole('title',render); }
+['unit','panelW','panelH','perRow','gap','paired'].forEach(id=>{ $(id).addEventListener('input',render); $(id).addEventListener('change',render); });
+
+function switchTab(m){
+  mode=m;
+  $('tabT').classList.toggle('active',m==='t'); $('tab1').classList.toggle('active',m==='one'); $('tab2').classList.toggle('active',m==='two');
+  $('compareWrap').style.display = m==='two' ? 'none':'block';
+  $('dataHint').textContent = m==='two'
+    ? 'Each column header must encode two factors, e.g. "Vehicle|Lamelopodia" (Factor A|Factor B). Values below are replicates for that combination.'
+    : 'Each column = one group\u2019s replicate values (or cluster values, one per row). First row = group names.';
+  files=[]; comparisons=[];
+  renderFileList(); renderColConfig(); render();
+}
+
+$('dsFiles').addEventListener('change', e=>{
+  [...e.target.files].forEach(f=>{
+    loadFile(f, csv=>{
+      const t=parseDelimited(csv);
+      files.push({name:f.name.replace(/\.[^.]+$/,''), headers:t.headers, cols:t.cols,
+        colConfig:t.headers.map((h,i)=>({label:h,colorIdx:((i*7+5)%40)+1,color:PALETTE[((i*7+5)%40)],visible:true,colIndex:i}))});
+      renderFileList(); renderColConfig(); render();
+    });
+  });
+});
+function removeFile(i){ files.splice(i,1); renderFileList(); renderColConfig(); render(); }
+function renderFileList(){
+  const c=$('fileList'); c.innerHTML='';
+  files.forEach((f,i)=>{
+    const d=document.createElement('div'); d.className='item';
+    d.innerHTML=`<div class="txt">${f.name} (${f.headers.length} groups)</div><div class="del" onclick="removeFile(${i})">\u2715</div>`;
+    c.appendChild(d);
+  });
+}
+function renderColConfig(){
+  const wrap=$('colConfigWrap'); wrap.innerHTML='';
+  if(!files.length) return;
+  wrap.innerHTML='<h2>Groups (from first file \u2014 applied by matching name to every file)</h2><div class="box" id="colConfigBox"></div>';
+  const box=$('colConfigBox');
+  files[0].colConfig.forEach((c,i)=>{
+    const div=document.createElement('div'); div.className='dsEntry';
+    div.innerHTML=`<div class="check"><input type="checkbox" ${c.visible?'checked':''} data-role="vis"><label style="margin:0">Show</label></div>
+      <input value="${c.label}" data-role="label" style="margin-top:4px">
+      <div data-role="pal" style="margin-top:6px"></div>`;
+    box.appendChild(div);
+    div.querySelector('[data-role=vis]').onchange=e=>{ c.visible=e.target.checked; render(); };
+    div.querySelector('[data-role=label]').onchange=e=>{ c.label=e.target.value; render(); };
+    createPalette(div.querySelector('[data-role=pal]'), c.colorIdx, (color,idx)=>{ c.color=color; c.colorIdx=idx; render(); });
+  });
+  refreshCmpSelects();
+}
+function refreshCmpSelects(){
+  if(!files.length){ $('cmpA').innerHTML=''; $('cmpB').innerHTML=''; return; }
+  const opts=files[0].colConfig.map((c,i)=>`<option value="${i}">${c.label}</option>`).join('');
+  $('cmpA').innerHTML=opts; $('cmpB').innerHTML=opts;
+}
+function addComparison(){
+  const a=parseInt($('cmpA').value), b=parseInt($('cmpB').value);
+  if(isNaN(a)||isNaN(b)||a===b) return;
+  comparisons.push({a,b});
+  renderCmpList(); render();
+}
+function removeComparison(i){ comparisons.splice(i,1); renderCmpList(); render(); }
+function renderCmpList(){
+  const c=$('cmpList'); c.innerHTML='';
+  comparisons.forEach((cp,i)=>{
+    const labA=files[0]?.colConfig[cp.a]?.label||'?', labB=files[0]?.colConfig[cp.b]?.label||'?';
+    const d=document.createElement('div'); d.className='item';
+    d.innerHTML=`<div class="txt">${escXml(labA)} vs ${escXml(labB)}</div><div class="del" onclick="removeComparison(${i})">\u2715</div>`;
+    c.appendChild(d);
+  });
+}
+function loadSample(){
+  files=[]; comparisons=[];
+  function randn(){ let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+  if(mode==='two'){
+    const facA=['Vehicle','FVME','FVEE'], facB=['Lamelopodia','Minor process','Axonal outgrowth'];
+    const headers=[], cols=[];
+    facA.forEach((fa,ai)=>facB.forEach((fb,bi)=>{ headers.push(fa+'|'+fb);
+      const base=[[75,25,3],[15,45,20],[45,35,15]][ai]; // rough per-condition means per category-ish
+      cols.push(Array.from({length:4},()=>Math.max(0,base[bi]+8*randn()))); }));
+    files.push({name:'sample', headers, cols, colConfig:headers.map((h,i)=>({label:h,colorIdx:((i*7+5)%40)+1,color:PALETTE[((i*7+5)%40)],visible:true,colIndex:i}))});
+  } else {
+    const heads=['WT-WT','WT-E696K','E696K-WT'];
+    const base=[-2.9,-2.25,-1.37];
+    const cols=heads.map((h,gi)=>Array.from({length:10},(_,ci)=> base[gi]+ (gi===0?0:0)+ (Math.random()-0.5)*1.0 - ci*0.05));
+    files.push({name:'clusters', headers:heads, cols, colConfig:heads.map((h,i)=>({label:h,colorIdx:((i*7+5)%40)+1,color:PALETTE[((i*7+5)%40)],visible:true,colIndex:i}))});
+    comparisons=[{a:1,b:0},{a:2,b:0}];
+  }
+  renderFileList(); renderColConfig(); renderCmpList(); render();
+}
+
+/* ===== chart drawing ===== */
+function jitter(n,width){ return Array.from({length:n},()=>(Math.random()-0.5)*width); }
+function drawBarChart(groups,comparisons,x,y,w,h,title,fontA,fontB,tickCol,titleCol){
+  const ml=x+50,mr=x+w-10,mt=y+34,mb=y+h-40, drawW=mr-ml, drawH=mb-mt;
+  const vis=groups.filter(g=>g.visible!==false);
+  if(!vis.length) return '';
+  const stats=vis.map(g=>({...g, m:mean(g.values), s:sd(g.values)}));
+  const maxV=Math.max(...stats.map(g=>g.m+g.s), ...stats.flatMap(g=>g.values))*1.15;
+  const minV=Math.min(0,...stats.flatMap(g=>g.values));
+  const slot=drawW/vis.length;
+  const yS=v=> mb-(v-minV)/(maxV-minV)*drawH;
+  let s='';
+  if(title) s+=`<text x="${x+w/2}" y="${y+16}" text-anchor="middle" ${fontB} fill="${titleCol}">${escXml(title)}</text>`;
+  s+=`<line x1="${ml}" y1="${mb}" x2="${mr}" y2="${mb}" stroke="#222" stroke-width="1.2"/>`;
+  s+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mb}" stroke="#222" stroke-width="1.2"/>`;
+  const yTicks=5;
+  for(let i=0;i<=yTicks;i++){ const v=minV+(maxV-minV)*i/yTicks; const yy=yS(v);
+    s+=`<line x1="${ml-3}" y1="${yy}" x2="${ml}" y2="${yy}" stroke="#222"/><text x="${ml-6}" y="${yy+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${Math.round(v*100)/100}</text>`; }
+  stats.forEach((g,i)=>{
+    const cx=ml+slot*(i+0.5), barW=slot*0.5;
+    const barTop=yS(g.m);
+    s+=`<rect x="${cx-barW/2}" y="${barTop}" width="${barW}" height="${mb-barTop}" fill="${g.color}" fill-opacity="0.85" stroke="${g.color}"/>`;
+    s+=`<line x1="${cx}" y1="${yS(g.m-g.s)}" x2="${cx}" y2="${yS(g.m+g.s)}" stroke="#222" stroke-width="1.2"/>`;
+    s+=`<line x1="${cx-5}" y1="${yS(g.m-g.s)}" x2="${cx+5}" y2="${yS(g.m-g.s)}" stroke="#222"/><line x1="${cx-5}" y1="${yS(g.m+g.s)}" x2="${cx+5}" y2="${yS(g.m+g.s)}" stroke="#222"/>`;
+    const jit=jitter(g.values.length,barW*0.6);
+    g.values.forEach((v,vi)=> s+=`<circle cx="${cx+jit[vi]}" cy="${yS(v)}" r="2.5" fill="#000"/>`);
+    s+=`<text x="${cx}" y="${mb+16}" text-anchor="middle" ${fontA} fill="${titleCol}">${escXml(g.label)}</text>`;
+  });
+  let bracketLevel=0;
+  comparisons.forEach(cmp=>{
+    const gi=vis.findIndex(g=>g.origIndex===cmp.a), gj=vis.findIndex(g=>g.origIndex===cmp.b);
+    if(gi<0||gj<0) return;
+    const lo=Math.min(gi,gj), hi=Math.max(gi,gj);
+    const cx1=ml+slot*(lo+0.5), cx2=ml+slot*(hi+0.5);
+    const by=mt+10+bracketLevel*16; bracketLevel++;
+    const p=cmp._p!==undefined?cmp._p:1;
+    s+=`<line x1="${cx1}" y1="${by}" x2="${cx2}" y2="${by}" stroke="#000" stroke-width="1"/>`;
+    s+=`<line x1="${cx1}" y1="${by}" x2="${cx1}" y2="${by+4}" stroke="#000" stroke-width="1"/>`;
+    s+=`<line x1="${cx2}" y1="${by}" x2="${cx2}" y2="${by+4}" stroke="#000" stroke-width="1"/>`;
+    s+=`<text x="${(cx1+cx2)/2}" y="${by-3}" text-anchor="middle" ${fontA} fill="#000">${starsFor(p)}</text>`;
+  });
+  return s;
+}
+function drawGroupedBarChart(cellObj,x,y,w,h,title,fontA,fontB,tickCol,titleCol){
+  const {levelsA,levelsB,cells,colorsB}=cellObj;
+  const ml=x+50,mr=x+w-10,mt=y+40,mb=y+h-40, drawW=mr-ml, drawH=mb-mt;
+  const all=cells.flatMap(c=>c.values);
+  const maxV=Math.max(...all)*1.2||1, minV=Math.min(0,...all);
+  const yS=v=> mb-(v-minV)/(maxV-minV)*drawH;
+  const groupSlot=drawW/levelsA.length, barW=groupSlot/(levelsB.length+1);
+  let s='';
+  if(title) s+=`<text x="${x+w/2}" y="${y+16}" text-anchor="middle" ${fontB} fill="${titleCol}">${escXml(title)}</text>`;
+  let lx=ml;
+  levelsB.forEach((lb,bi)=>{ s+=`<rect x="${lx}" y="${y+22}" width="10" height="10" fill="${colorsB[bi]}"/><text x="${lx+14}" y="${y+31}" ${fontA} fill="${titleCol}">${escXml(lb)}</text>`; lx+=14+lb.length*6.5+14; });
+  s+=`<line x1="${ml}" y1="${mb}" x2="${mr}" y2="${mb}" stroke="#222" stroke-width="1.2"/><line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mb}" stroke="#222" stroke-width="1.2"/>`;
+  for(let i=0;i<=5;i++){ const v=minV+(maxV-minV)*i/5, yy=yS(v); s+=`<line x1="${ml-3}" y1="${yy}" x2="${ml}" y2="${yy}" stroke="#222"/><text x="${ml-6}" y="${yy+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${Math.round(v*100)/100}</text>`; }
+  levelsA.forEach((la,ai)=>{
+    const gx0=ml+ai*groupSlot;
+    levelsB.forEach((lb,bi)=>{
+      const cell=cells.find(c=>c.a===la&&c.b===lb); if(!cell) return;
+      const m=mean(cell.values), sdv=sd(cell.values);
+      const cx=gx0+barW*(bi+0.7), top=yS(m);
+      s+=`<rect x="${cx-barW*0.4}" y="${top}" width="${barW*0.8}" height="${mb-top}" fill="${colorsB[bi]}" fill-opacity="0.85" stroke="${colorsB[bi]}"/>`;
+      s+=`<line x1="${cx}" y1="${yS(m-sdv)}" x2="${cx}" y2="${yS(m+sdv)}" stroke="#222" stroke-width="1.2"/>`;
+      const jit=jitter(cell.values.length,barW*0.35);
+      cell.values.forEach((v,vi)=> s+=`<circle cx="${cx+jit[vi]}" cy="${yS(v)}" r="2" fill="#000"/>`);
+    });
+    s+=`<text x="${gx0+groupSlot/2}" y="${mb+16}" text-anchor="middle" ${fontA} fill="${titleCol}">${escXml(la)}</text>`;
+  });
+  return s;
+}
+
+/* ===== build per-file chart + stats, then layout ===== */
+function buildFileGroups(f){
+  return f.colConfig.map((c,i)=>({label:c.label,color:c.color,visible:c.visible,origIndex:i,values:(f.cols[c.colIndex]||[]).filter(v=>!isNaN(v))}));
+}
+function fileComparisonsWithP(f,groups){
+  const p=$('paired').checked;
+  return comparisons.map(cmp=>{
+    const ga=groups.find(g=>g.origIndex===cmp.a), gb=groups.find(g=>g.origIndex===cmp.b);
+    if(!ga||!gb||ga.values.length<2||gb.values.length<2) return {...cmp,_p:1,_stat:null};
+    const r=tTest(ga.values,gb.values,p);
+    return {...cmp,_p:r.p,_stat:r};
+  });
+}
+function render(){
+  if(!tickPal) initRoles();
+  const unit=$('unit').value, wPx=physicalToPx($('panelW').value,unit), hPx=physicalToPx($('panelH').value,unit);
+  const gapPx=physicalToPx($('gap').value,unit), perRow=Math.max(parseInt($('perRow').value)||1,1);
+  const fontA=roleFontAttrs('tick'), fontB=roleFontAttrs('title'), tickCol=roleColor('tick',tickPal,'#333'), titleCol=roleColor('title',titlePal,'#1c2330');
+  const n=Math.max(files.length,1), cols=Math.min(n,perRow), rows=Math.ceil(n/perRow);
+  const W=cols*wPx+(cols-1)*gapPx+30, H=rows*hPx+(rows-1)*gapPx+30;
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/>`;
+  const tableRows=[];
+  if(!files.length){ svg+='</svg>'; $('svgHost').innerHTML=svg; $('tableHost').innerHTML=''; return; }
+  files.forEach((f,fi)=>{
+    const r=Math.floor(fi/perRow), c=fi%perRow;
+    const x=15+c*(wPx+gapPx), y=15+r*(hPx+gapPx);
+    if(mode==='two'){
+      const delim='|';
+      const parsed=f.headers.map((h,i)=>{ const parts=h.split(delim); return {a:(parts[0]||'A').trim(), b:(parts[1]||'B').trim(), colIndex:i}; });
+      const levelsA=[...new Set(parsed.map(p=>p.a))], levelsB=[...new Set(parsed.map(p=>p.b))];
+      const cells=parsed.map(p=>({a:p.a,b:p.b,values:(f.cols[p.colIndex]||[]).filter(v=>!isNaN(v))})).filter(c=>c.values.length);
+      const colorsB=levelsB.map((_,i)=>PALETTE[((i*9+3)%40)]);
+      svg+=drawGroupedBarChart({levelsA,levelsB,cells,colorsB}, x,y,wPx,hPx, f.name, fontA,fontB,tickCol,titleCol);
+      if(cells.length>=2 && levelsA.length>=1 && levelsB.length>=1 && cells[0].values.length>1){
+        try{
+          const aov=twoWayANOVA(cells);
+          tableRows.push({file:f.name, type:'Two-Way ANOVA', rows:[
+            ['Factor A (rows)','SS','df','MS','F','p'],
+            ['Factor A', aov.A.ss.toFixed(3), aov.A.df, aov.A.ms.toFixed(3), aov.A.F.toFixed(3), aov.A.p.toExponential(3)],
+            ['Factor B', aov.B.ss.toFixed(3), aov.B.df, aov.B.ms.toFixed(3), aov.B.F.toFixed(3), aov.B.p.toExponential(3)],
+            ['Interaction A\u00d7B', aov.AB.ss.toFixed(3), aov.AB.df, aov.AB.ms.toFixed(3), aov.AB.F.toFixed(3), aov.AB.p.toExponential(3)],
+            ['Residual', aov.E.ss.toFixed(3), aov.E.df, aov.E.ms.toFixed(3), '', '']
+          ]});
+        }catch(e){}
+      }
+    } else {
+      const groups=buildFileGroups(f).filter(g=>g.visible);
+      const cmpP=fileComparisonsWithP(f,groups);
+      svg+=drawBarChart(groups,cmpP,x,y,wPx,hPx,f.name,fontA,fontB,tickCol,titleCol);
+      const descRows=groups.map(g=>[g.label, g.values.length, mean(g.values).toFixed(3), sd(g.values).toFixed(3)]);
+      let extra=[];
+      if(mode==='one' && groups.length>=2){
+        const aov=oneWayANOVA(groups.map(g=>g.values));
+        extra.push(['One-Way ANOVA','F='+aov.F.toFixed(3), 'df=('+aov.dfB+','+aov.dfW+')', 'p='+aov.p.toExponential(3), '']);
+      }
+      const cmpRows=cmpP.map(cp=>{
+        const la=groups.find(g=>g.origIndex===cp.a)?.label||'?', lb=groups.find(g=>g.origIndex===cp.b)?.label||'?';
+        return [la+' vs '+lb, cp._stat?cp._stat.t.toFixed(3):'', cp._stat?cp._stat.df.toFixed(1):'', cp._p.toExponential(3), starsFor(cp._p)];
+      });
+      tableRows.push({file:f.name, type: mode==='t'?"t-Test":'One-Way ANOVA',
+        rows:[['Group','N','Mean','SD'], ...descRows, ...(extra.length?[['','','','']].concat(extra.map(e=>[e[0],e[1],e[2],e[3]])):[]),
+              ...(cmpRows.length?[['Comparison','t','df','p','Sig.']].concat(cmpRows):[])]});
+    }
+  });
+  svg+='</svg>';
+  $('svgHost').innerHTML=svg;
+  renderTables(tableRows);
+}
+function renderTables(tableRows){
+  const host=$('tableHost'); host.innerHTML='';
+  tableRows.forEach(tr=>{
+    const h=document.createElement('div'); h.style.marginTop='16px';
+    h.innerHTML=`<b>${escXml(tr.file)} \u2014 ${tr.type}</b>`;
+    const table=document.createElement('table'); table.className='stattbl';
+    tr.rows.forEach((row,ri)=>{
+      const trEl=document.createElement('tr');
+      row.forEach(cell=>{ const el=document.createElement(ri===0?'th':'td'); el.textContent=cell; trEl.appendChild(el); });
+      table.appendChild(trEl);
+    });
+    h.appendChild(table); host.appendChild(h);
+  });
+}
+
+/* ===== export ===== */
+function exportSVGFile(){ downloadSVG($('svgHost').querySelector('svg'), 'stats-chart.svg'); }
+function exportPDFFile(){ const svgEl=$('svgHost').querySelector('svg'); exportVectorPDF(svgEl, parseFloat(svgEl.getAttribute('width'))/96, parseFloat(svgEl.getAttribute('height'))/96, 'stats-chart.pdf'); }
+function exportExcel(){
+  const wb=XLSX.utils.book_new();
+  files.forEach((f,fi)=>{
+    let aoa=[];
+    if(mode==='two'){
+      const delim='|';
+      const parsed=f.headers.map((h,i)=>{ const parts=h.split(delim); return {a:(parts[0]||'A').trim(),b:(parts[1]||'B').trim(),colIndex:i}; });
+      const levelsA=[...new Set(parsed.map(p=>p.a))], levelsB=[...new Set(parsed.map(p=>p.b))];
+      const cells=parsed.map(p=>({a:p.a,b:p.b,values:(f.cols[p.colIndex]||[]).filter(v=>!isNaN(v))})).filter(c=>c.values.length);
+      aoa.push(['Factor A','Factor B','N','Mean','SD']);
+      cells.forEach(c=> aoa.push([c.a,c.b,c.values.length,mean(c.values).toFixed(4),sd(c.values).toFixed(4)]));
+      if(cells.length && cells[0].values.length>1){
+        try{ const aov=twoWayANOVA(cells); aoa.push([]); aoa.push(['Source','SS','df','MS','F','p']);
+          aoa.push(['Factor A',aov.A.ss,aov.A.df,aov.A.ms,aov.A.F,aov.A.p]);
+          aoa.push(['Factor B',aov.B.ss,aov.B.df,aov.B.ms,aov.B.F,aov.B.p]);
+          aoa.push(['Interaction',aov.AB.ss,aov.AB.df,aov.AB.ms,aov.AB.F,aov.AB.p]);
+          aoa.push(['Residual',aov.E.ss,aov.E.df,aov.E.ms,'','']);
+        }catch(e){}
+      }
+    } else {
+      const groups=buildFileGroups(f).filter(g=>g.visible);
+      const maxN=Math.max(...groups.map(g=>g.values.length),0);
+      const header=groups.map(g=>g.label);
+      aoa.push(header);
+      for(let r=0;r<maxN;r++) aoa.push(groups.map(g=>g.values[r]!==undefined?g.values[r]:''));
+      aoa.push(header.map(()=>'')); 
+      aoa.push(groups.map(g=>'N='+g.values.length));
+      aoa.push(groups.map(g=>'Mean='+mean(g.values).toFixed(4)));
+      aoa.push(groups.map(g=>'SD='+sd(g.values).toFixed(4)));
+      const cmpP=fileComparisonsWithP(f,groups);
+      if(mode==='one' && groups.length>=2){ const aov=oneWayANOVA(groups.map(g=>g.values)); aoa.push([]); aoa.push(['One-Way ANOVA F',aov.F,'df',aov.dfB+','+aov.dfW,'p',aov.p]); }
+      if(cmpP.length){ aoa.push([]); aoa.push(['Comparison','t / mean diff','df','p-value','Significance']);
+        cmpP.forEach(cp=>{ const la=groups.find(g=>g.origIndex===cp.a)?.label||'?', lb=groups.find(g=>g.origIndex===cp.b)?.label||'?';
+          aoa.push([la+' vs '+lb, cp._stat?cp._stat.t:'', cp._stat?cp._stat.df:'', cp._p, starsFor(cp._p)]); }); }
+    }
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(wb, ws, (f.name||'Sheet'+fi).substring(0,31));
+  });
+  XLSX.writeFile(wb,'statistics-results.xlsx');
+}
+
+switchTab('t'); loadSample();
+</script>
+</body>
+</html>
